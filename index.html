@@ -66,7 +66,9 @@
     height: 100%;
     object-fit: cover;
     z-index: -3;
+    pointer-events: none; /* nada de controles/toque no vídeo de fundo */
   }
+  .hero__bg--fallback { display: none; } /* só aparece em "reduzir movimento" */
 
   /* Escurecimento p/ legibilidade: mais denso à esquerda (lado do texto) + topo/base */
   .hero__scrim {
@@ -319,6 +321,8 @@
   @media (prefers-reduced-motion: reduce) {
     * { animation: none !important; transition: none !important; }
     .reveal { opacity: 1; transform: none; }
+    video.hero__bg { display: none; }      /* sem vídeo animado */
+    .hero__bg--fallback { display: block; } /* mostra o quadro estático, sem botão de play */
   }
 </style>
 </head>
@@ -326,10 +330,12 @@
 
   <section class="hero">
     <!-- FUNDO: vídeo em loop ping-pong. Mantenha os 3 arquivos na mesma pasta deste HTML. -->
-    <video class="hero__bg" autoplay muted loop playsinline preload="auto" poster="hero-poster.jpg">
+    <video class="hero__bg" autoplay muted loop playsinline webkit-playsinline preload="auto" poster="hero-poster.jpg" disablepictureinpicture x5-playsinline>
       <source src="hero-bg.webm" type="video/webm" />
       <source src="hero-bg.mp4"  type="video/mp4" />
     </video>
+    <!-- Fallback estático (usado quando "reduzir movimento" está ligado) -->
+    <img class="hero__bg hero__bg--fallback" src="hero-poster.jpg" alt="" aria-hidden="true" />
     <div class="hero__scrim"></div>
     <div class="hero__mesh"></div>
 
@@ -401,17 +407,34 @@
   </section>
 
   <script>
-    // Respeita "reduzir movimento": pausa o vídeo de fundo
     (function () {
+      var v = document.querySelector('video.hero__bg');
+      if (!v) return;
       var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-      var vid = document.querySelector('.hero__bg');
-      function apply() {
-        if (!vid) return;
-        if (mq.matches) { vid.pause(); vid.removeAttribute('autoplay'); }
-        else { var p = vid.play(); if (p && p.catch) p.catch(function(){}); }
+
+      // Mudo via propriedade (não só atributo) é o que libera o autoplay no mobile
+      v.muted = true; v.defaultMuted = true; v.setAttribute('muted', '');
+      v.playsInline = true;
+
+      function tryPlay() { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+
+      function start() { if (mq.matches) { v.pause(); return; } tryPlay(); }
+
+      // Tenta assim que o vídeo tem dados suficientes
+      if (v.readyState >= 2) start();
+      v.addEventListener('loadeddata', start, { once: true });
+      start();
+
+      // Fallback: se o navegador bloqueou o autoplay (ex.: Modo de Baixo Consumo no
+      // iPhone), inicia no primeiro gesto do usuário e depois se remove sozinho.
+      var events = ['touchstart', 'pointerdown', 'click', 'scroll', 'keydown'];
+      function kick() {
+        if (!mq.matches) tryPlay();
+        events.forEach(function (e) { window.removeEventListener(e, kick); });
       }
-      apply();
-      if (mq.addEventListener) mq.addEventListener('change', apply);
+      events.forEach(function (e) { window.addEventListener(e, kick, { passive: true }); });
+
+      if (mq.addEventListener) mq.addEventListener('change', start);
     })();
   </script>
 
