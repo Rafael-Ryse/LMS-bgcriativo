@@ -65,10 +65,17 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    z-index: -3;
-    pointer-events: none; /* nada de controles/toque no vídeo de fundo */
+    pointer-events: none; /* nada de controles/toque no fundo */
   }
-  .hero__bg--fallback { display: none; } /* só aparece em "reduzir movimento" */
+  video.hero__bg { z-index: -4; }
+  /* Capa estática: cobre o vídeo até ele tocar (esconde o botão de play do mobile
+     e o quadro escuro do início). Some suavemente quando o vídeo entra. */
+  .hero__hold {
+    z-index: -3;
+    opacity: 1;
+    transition: opacity .8s ease;
+  }
+  .hero__hold.is-playing { opacity: 0; }
 
   /* Escurecimento p/ legibilidade: mais denso à esquerda (lado do texto) + topo/base */
   .hero__scrim {
@@ -108,19 +115,20 @@
     gap: 24px;
   }
 
-  /* Troque pelo nome/logo da sua empresa */
+  /* Logo LMS no header */
   .brand {
     display: inline-flex;
     align-items: center;
-    gap: 11px;
-    font-family: var(--display);
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    font-size: 1.06rem;
+    line-height: 0;
+    transition: opacity .2s ease;
   }
-  .brand__glyph { width: 26px; height: 26px; flex: none; filter: drop-shadow(0 0 10px rgba(55,225,255,0.55)); }
-  .brand__name { color: var(--text); }
-  .brand__name b { color: var(--cyan); font-weight: 700; }
+  .brand:hover { opacity: 0.85; }
+  .brand__logo {
+    height: 40px;
+    width: auto;
+    display: block;
+    filter: drop-shadow(0 0 14px rgba(55,225,255,0.28));
+  }
 
   .nav__links {
     display: flex;
@@ -321,8 +329,8 @@
   @media (prefers-reduced-motion: reduce) {
     * { animation: none !important; transition: none !important; }
     .reveal { opacity: 1; transform: none; }
-    video.hero__bg { display: none; }      /* sem vídeo animado */
-    .hero__bg--fallback { display: block; } /* mostra o quadro estático, sem botão de play */
+    video.hero__bg { display: none; }        /* sem vídeo animado */
+    .hero__hold { opacity: 1 !important; }   /* mantém o quadro estático, sem play */
   }
 </style>
 </head>
@@ -334,23 +342,15 @@
       <source src="hero-bg.webm" type="video/webm" />
       <source src="hero-bg.mp4"  type="video/mp4" />
     </video>
-    <!-- Fallback estático (usado quando "reduzir movimento" está ligado) -->
-    <img class="hero__bg hero__bg--fallback" src="hero-poster.jpg" alt="" aria-hidden="true" />
+    <!-- Capa estática: segura o quadro cheio (frame 150) até o vídeo tocar -->
+    <img class="hero__bg hero__hold" src="hero-poster.jpg" alt="" aria-hidden="true" />
     <div class="hero__scrim"></div>
     <div class="hero__mesh"></div>
 
     <!-- NAV -->
     <nav class="nav reveal d1">
-      <!-- Troque este bloco pelo logo/nome da sua empresa -->
-      <a class="brand" href="#" aria-label="Página inicial">
-        <svg class="brand__glyph" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <circle cx="16" cy="6"  r="3" fill="#37E1FF"/>
-          <circle cx="6"  cy="24" r="3" fill="#37E1FF"/>
-          <circle cx="26" cy="24" r="3" fill="#37E1FF"/>
-          <circle cx="16" cy="16" r="2.4" fill="#FF9E3D"/>
-          <path d="M16 6 16 16M16 16 6 24M16 16 26 24" stroke="#37E1FF" stroke-width="1.4" opacity="0.7"/>
-        </svg>
-        <span class="brand__name">SUA<b>EMPRESA</b></span>
+      <a class="brand" href="#" aria-label="LMS Soluções em T.I. — início">
+        <img class="brand__logo" src="logo-lms-light.webp" alt="LMS Soluções em T.I." width="331" height="158" />
       </a>
 
       <div class="nav__links">
@@ -409,6 +409,7 @@
   <script>
     (function () {
       var v = document.querySelector('video.hero__bg');
+      var hold = document.querySelector('.hero__hold');
       if (!v) return;
       var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -416,23 +417,31 @@
       v.muted = true; v.defaultMuted = true; v.setAttribute('muted', '');
       v.playsInline = true;
 
-      function tryPlay() { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+      // Quando o vídeo realmente começar a tocar, a capa some (sem flash: o frame 150
+      // da capa é o mesmo em que o vídeo começa).
+      v.addEventListener('playing', function () { if (hold) hold.classList.add('is-playing'); });
 
+      function tryPlay() { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
       function start() { if (mq.matches) { v.pause(); return; } tryPlay(); }
 
-      // Tenta assim que o vídeo tem dados suficientes
       if (v.readyState >= 2) start();
       v.addEventListener('loadeddata', start, { once: true });
+      v.addEventListener('canplay', start, { once: true });
       start();
 
       // Fallback: se o navegador bloqueou o autoplay (ex.: Modo de Baixo Consumo no
-      // iPhone), inicia no primeiro gesto do usuário e depois se remove sozinho.
-      var events = ['touchstart', 'pointerdown', 'click', 'scroll', 'keydown'];
+      // iPhone / Economia de Dados no Android), inicia no primeiro gesto do usuário.
+      var events = ['touchstart', 'pointerdown', 'click', 'scroll', 'keydown', 'mousemove'];
       function kick() {
         if (!mq.matches) tryPlay();
         events.forEach(function (e) { window.removeEventListener(e, kick); });
       }
       events.forEach(function (e) { window.addEventListener(e, kick, { passive: true }); });
+
+      // Retoma ao voltar pra aba
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && !mq.matches) tryPlay();
+      });
 
       if (mq.addEventListener) mq.addEventListener('change', start);
     })();
